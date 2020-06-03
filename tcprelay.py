@@ -71,9 +71,15 @@ class SocketRelay(object):
 class TCPRelay(SocketServer.BaseRequestHandler):
     def handle(self):
         print "Incoming connection to {0}".format(self.server.server_address[1])
-
+        mux = usbmux.USBMux(options.sockpath)
         print "Waiting for devices..."
-        if len(self.server.devices) == 0:
+        lastLength = len(mux.devices)
+        while True:
+            mux.process(0.1)
+            if len(mux.devices) == lastLength: break
+            lastLength = len(mux.devices)
+
+        if not mux.devices:
             print "No device found"
             self.request.close()
             return
@@ -81,9 +87,9 @@ class TCPRelay(SocketServer.BaseRequestHandler):
         dev = None
         if options.udid is None:
             # Default to the first available device if no udid was specified
-            dev = self.server.devices[0]
+            dev = mux.devices[0]
         else:
-            for device in self.server.devices:
+            for device in mux.devices:
                 # Look for the specified device UDID
                 if device.serial == options.udid:
                     dev = device
@@ -133,20 +139,6 @@ if len(args) == 0:
 
 ports = []
 
-
-mux = usbmux.USBMux(options.sockpath)
-print "Waiting for devices..."
-mux.process(0.1)
-lastLength = len(mux.devices)
-
-while True:
-    mux.process(0.1)
-    if len(mux.devices) == lastLength: break
-    lastLength = len(mux.devices)
-
-devices = mux.devices
-print "Devices:\n{0}".format("\n".join([str(d) for d in devices]))
-
 for arg in args:
     try:
         if ':' in arg:
@@ -164,11 +156,10 @@ for arg in args:
 servers = []
 
 for host, remotePort, localPort in ports:
-    print "Forwarding local port {0}:{1} to remote port {2}".format(host, localPort, remotePort)
+    print "Forwarding local port {0}:{1} to remote port {2} for device {3}".format(host, localPort, remotePort, options.udid)
     server = serverClass((host, localPort), TCPRelay)
     server.remotePort = remotePort
     server.bufferSize = options.bufsize
-    server.devices = devices
     servers.append(server)
 
 alive = True
